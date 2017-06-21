@@ -56,6 +56,196 @@ typedef __uint8_t u8;
 
 #define _PATH_PROCNET_DEV "/proc/net/dev"
 
+#define ETHTOOL_LINK_MODE_MASK_MAX_KERNEL_NU32		\
+		(SCHAR_MAX)
+#define ETHTOOL_LINK_MODE_MASK_MAX_KERNEL_NBITS		\
+		(32 * ETHTOOL_LINK_MODE_MASK_MAX_KERNEL_NU32)
+#define ETHTOOL_LINK_MODE_MASK_MAX_KERNEL_NBYTES	\
+		(4 * ETHTOOL_LINK_MODE_MASK_MAX_KERNEL_NU32)
+#define ETHTOOL_DECLARE_LINK_MODE_MASK(name)		\
+		u32 name[ETHTOOL_LINK_MODE_MASK_MAX_KERNEL_NU32]
+
+#define ethtool_link_mode_for_each_u32(index)			\
+	for ((index) = 0;					\
+	     (index) < ETHTOOL_LINK_MODE_MASK_MAX_KERNEL_NU32;	\
+	     ++(index))
+
+static inline int ethtool_link_mode_test_bit(unsigned int nr, const u32 *mask)
+{
+	if (nr >= ETHTOOL_LINK_MODE_MASK_MAX_KERNEL_NBITS){
+		return !!0;
+    }
+	return !!(mask[nr / 32] & (1 << (nr % 32)));
+}
+
+
+static inline void ethtool_link_mode_zero(u32 *dst)
+{
+	memset(dst, 0, ETHTOOL_LINK_MODE_MASK_MAX_KERNEL_NBYTES);
+}
+
+
+static inline int ethtool_link_mode_is_empty(const u32 *mask)
+{
+	unsigned int i;
+
+	ethtool_link_mode_for_each_u32(i) {
+		if (mask[i] != 0)
+			return -1;
+	}
+
+	return 0;
+}
+
+static inline void ethtool_link_mode_copy(u32 *dst, const u32 *src)
+{
+	memcpy(dst, src, ETHTOOL_LINK_MODE_MASK_MAX_KERNEL_NBYTES);
+}
+
+
+static inline int ethtool_link_mode_set_bit(unsigned int nr, u32 *mask)
+{
+	if (nr >= ETHTOOL_LINK_MODE_MASK_MAX_KERNEL_NBITS)
+		return -1;
+	mask[nr / 32] |= (1 << (nr % 32));
+	return 0;
+}
+
+static PyObject *get_link_modes(PyObject *self __unused, PyObject *args)
+{
+	struct ethtool_cmd ecmd;
+    struct ifreq ifr;
+    int fd, err,i;
+    const char *devname;
+	PyObject *list;
+    
+	if (!PyArg_ParseTuple(args, "s", &devname))
+        return NULL;
+    
+	/* Setup our control structures. */
+    memset(&ifr, 0, sizeof(ifr));
+    strncpy(&ifr.ifr_name[0], devname, IFNAMSIZ);
+    ifr.ifr_name[IFNAMSIZ - 1] = 0;
+    ifr.ifr_data =  &ecmd;
+    ecmd.cmd = ETHTOOL_GSET;
+
+    /* Open control socket. */
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        return PyErr_SetFromErrno(PyExc_OSError);
+    }
+
+    /* Get current settings. */
+    err = ioctl(fd, SIOCETHTOOL, &ifr);
+
+    if (err < 0) {  /* failed? */
+        PyErr_SetFromErrno(PyExc_IOError);
+        close(fd);
+        return NULL;
+    }
+	static const struct {
+			int same_line; /* print on same line as previous */
+			unsigned int bit_index;
+			const char *name;
+		} mode_defs[] = {
+			{ 0, ETHTOOL_LINK_MODE_10baseT_Half_BIT,
+			  "10baseT/Half" },
+			{ 1, ETHTOOL_LINK_MODE_10baseT_Full_BIT,
+			  "10baseT/Full" },
+			{ 0, ETHTOOL_LINK_MODE_100baseT_Half_BIT,
+			  "100baseT/Half" },
+			{ 1, ETHTOOL_LINK_MODE_100baseT_Full_BIT,
+			  "100baseT/Full" },
+			{ 0, ETHTOOL_LINK_MODE_1000baseT_Half_BIT,
+			  "1000baseT/Half" },
+			{ 1, ETHTOOL_LINK_MODE_1000baseT_Full_BIT,
+			  "1000baseT/Full" },
+			{ 0, ETHTOOL_LINK_MODE_1000baseKX_Full_BIT,
+			  "1000baseKX/Full" },
+			{ 0, ETHTOOL_LINK_MODE_2500baseX_Full_BIT,
+			  "2500baseX/Full" },
+			{ 0, ETHTOOL_LINK_MODE_10000baseT_Full_BIT,
+			  "10000baseT/Full" },
+			{ 0, ETHTOOL_LINK_MODE_10000baseKX4_Full_BIT,
+			  "10000baseKX4/Full" },
+			{ 0, ETHTOOL_LINK_MODE_10000baseKR_Full_BIT,
+			  "10000baseKR/Full" },
+			{ 0, ETHTOOL_LINK_MODE_20000baseMLD2_Full_BIT,
+			  "20000baseMLD2/Full" },
+			{ 0, ETHTOOL_LINK_MODE_20000baseKR2_Full_BIT,
+			  "20000baseKR2/Full" },
+			{ 0, ETHTOOL_LINK_MODE_40000baseKR4_Full_BIT,
+			  "40000baseKR4/Full" },
+			{ 0, ETHTOOL_LINK_MODE_40000baseCR4_Full_BIT,
+			  "40000baseCR4/Full" },
+			{ 0, ETHTOOL_LINK_MODE_40000baseSR4_Full_BIT,
+			  "40000baseSR4/Full" },
+			{ 0, ETHTOOL_LINK_MODE_40000baseLR4_Full_BIT,
+			  "40000baseLR4/Full" },
+			{ 0, ETHTOOL_LINK_MODE_56000baseKR4_Full_BIT,
+			  "56000baseKR4/Full" },
+			{ 0, ETHTOOL_LINK_MODE_56000baseCR4_Full_BIT,
+			  "56000baseCR4/Full" },
+			{ 0, ETHTOOL_LINK_MODE_56000baseSR4_Full_BIT,
+			  "56000baseSR4/Full" },
+			{ 0, ETHTOOL_LINK_MODE_56000baseLR4_Full_BIT,
+			  "56000baseLR4/Full" },
+			{ 0, ETHTOOL_LINK_MODE_25000baseCR_Full_BIT,
+			  "25000baseCR/Full" },
+			{ 0, ETHTOOL_LINK_MODE_25000baseKR_Full_BIT,
+			  "25000baseKR/Full" },
+			{ 0, ETHTOOL_LINK_MODE_25000baseSR_Full_BIT,
+			  "25000baseSR/Full" },
+			{ 0, ETHTOOL_LINK_MODE_50000baseCR2_Full_BIT,
+			  "50000baseCR2/Full" },
+			{ 0, ETHTOOL_LINK_MODE_50000baseKR2_Full_BIT,
+			  "50000baseKR2/Full" },
+			{ 0, ETHTOOL_LINK_MODE_100000baseKR4_Full_BIT,
+			  "100000baseKR4/Full" },
+			{ 0, ETHTOOL_LINK_MODE_100000baseSR4_Full_BIT,
+			  "100000baseSR4/Full" },
+			{ 0, ETHTOOL_LINK_MODE_100000baseCR4_Full_BIT,
+			  "100000baseCR4/Full" },
+			{ 0, ETHTOOL_LINK_MODE_100000baseLR4_ER4_Full_BIT,
+			  "100000baseLR4_ER4/Full" },
+			{ 0, ETHTOOL_LINK_MODE_50000baseSR2_Full_BIT,
+			  "50000baseSR2/Full" },
+			{ 0, ETHTOOL_LINK_MODE_1000baseX_Full_BIT,
+			  "1000baseX/Full" },
+			{ 0, ETHTOOL_LINK_MODE_10000baseCR_Full_BIT,
+			  "10000baseCR/Full" },
+			{ 0, ETHTOOL_LINK_MODE_10000baseSR_Full_BIT,
+			  "10000baseSR/Full" },
+			{ 0, ETHTOOL_LINK_MODE_10000baseLR_Full_BIT,
+			  "10000baseLR/Full" },
+			{ 0, ETHTOOL_LINK_MODE_10000baseLRM_Full_BIT,
+			  "10000baseLRM/Full" },
+			{ 0, ETHTOOL_LINK_MODE_10000baseER_Full_BIT,
+			  "10000baseER/Full" },
+			{ 0, ETHTOOL_LINK_MODE_2500baseT_Full_BIT,
+			  "2500baseT/Full" },
+			{ 0, ETHTOOL_LINK_MODE_5000baseT_Full_BIT,
+			  "5000baseT/Full" },
+		};
+    ETHTOOL_DECLARE_LINK_MODE_MASK(supported);
+    list = PyList_New(0);
+    //i = ethtool_link_mode_is_empty(&ecmd.supported);
+	supported[0] = ecmd.supported;
+	for (i = 0; i < ARRAY_SIZE(mode_defs); i++) {
+		if (ethtool_link_mode_test_bit(mode_defs[i].bit_index,supported)) {
+			PyObject *str = PyStr_FromString(mode_defs[i].name);
+			if (!PySequence_Contains(list, str)) {
+            	PyList_Append(list, str);
+        	}
+        	Py_DECREF(str);
+		}
+	}
+	
+  	close(fd);
+    return list;
+}
+
+
 static PyObject *get_active_devices(PyObject *self __unused,
                                     PyObject *args __unused)
 {
@@ -941,6 +1131,11 @@ static struct PyMethodDef PyEthModuleMethods[] = {
     {
         .ml_name = "get_wireless_protocol",
         .ml_meth = (PyCFunction)get_wireless_protocol,
+        .ml_flags = METH_VARARGS,
+    },
+    {
+        .ml_name = "get_link_modes",
+        .ml_meth = (PyCFunction)get_link_modes,
         .ml_flags = METH_VARARGS,
     },
     { .ml_name = NULL, },
