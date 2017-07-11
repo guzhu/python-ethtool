@@ -111,6 +111,52 @@ static inline int ethtool_link_mode_set_bit(unsigned int nr, u32 *mask)
 	return 0;
 }
 
+static PyObject *get_link_stat(PyObject *self __unused, PyObject *args)
+{
+    struct ifreq ifr;
+    int fd, err;
+    const char *devname;
+    struct ethtool_value edata;
+    
+    if (!PyArg_ParseTuple(args, "s", &devname))
+        return NULL;
+
+    /* Setup our control structures. */
+    memset(&ifr, 0, sizeof(ifr));
+    strncpy(&ifr.ifr_name[0], devname, IFNAMSIZ);
+    ifr.ifr_name[IFNAMSIZ - 1] = 0;
+    ifr.ifr_data =  &edata;
+    edata.cmd = ETHTOOL_GLINK;
+
+    /* Open control socket. */
+    fd = socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) {
+        return PyErr_SetFromErrno(PyExc_OSError);
+    }
+
+    /* Get current settings. */
+    err = ioctl(fd, SIOCETHTOOL, &ifr);
+    if (err == 0) {
+        if (edata.data){
+            return Py_BuildValue("b", 1);
+        }
+        else{
+            return Py_BuildValue("b", 0);
+        }
+    } 
+    if (errno != EOPNOTSUPP) {
+        perror("Cannot get link status");
+        return NULL;
+    }
+    if (err < 0) {  /* failed? */
+        PyErr_SetFromErrno(PyExc_IOError);
+        close(fd);
+        return NULL;
+    }
+    return NULL;
+
+}
+
 static PyObject *get_link_modes(PyObject *self __unused, PyObject *args)
 {
 	struct ethtool_cmd ecmd;
@@ -1136,6 +1182,11 @@ static struct PyMethodDef PyEthModuleMethods[] = {
     {
         .ml_name = "get_link_modes",
         .ml_meth = (PyCFunction)get_link_modes,
+        .ml_flags = METH_VARARGS,
+    },
+    {
+        .ml_name = "get_link_stat",
+        .ml_meth = (PyCFunction)get_link_stat,
         .ml_flags = METH_VARARGS,
     },
     { .ml_name = NULL, },
